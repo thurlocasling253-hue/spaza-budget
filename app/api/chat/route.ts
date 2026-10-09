@@ -6,12 +6,39 @@ export const runtime = 'nodejs';
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = apiKey ? new GoogleGenerativeAI(apiKey) : null;
 
+/**
+ * Production deployment checklist:
+ * 
+ * 1. SET ENVIRONMENT VARIABLES (Vercel/GitHub Settings → Environment Variables)
+ *    - GEMINI_API_KEY=your_actual_key_here
+ * 
+ * 2. VERIFY DEPLOYMENT
+ *    - Route: /api/chat (POST only)
+ *    - Model: gemini-1.5-flash
+ *    - Runtime: Node.js
+ * 
+ * 3. TEST IN PRODUCTION
+ *    - Open app at https://spaza-budget.vercel.app
+ *    - Click "Spaza AI Advisor" button
+ *    - Send: "How can I reduce food costs?"
+ *    - Verify: Response appears (not error)
+ * 
+ * 4. MONITOR LOGS
+ *    - Vercel Dashboard → Function Logs
+ *    - Watch for: "Missing GEMINI_API_KEY" or API errors
+ * 
+ * For issues: Check GitHub at https://github.com/thurlocasling253-hue/spaza-budget
+ */
+
 export async function POST(request: NextRequest) {
+  // Check if API key is configured
   if (!genAI) {
+    console.error('[DEPLOYMENT_ISSUE] Missing GEMINI_API_KEY environment variable');
     return NextResponse.json(
       {
         success: false,
-        error: 'Missing GEMINI_API_KEY environment variable.',
+        error: 'AI service not configured. Check deployment environment variables.',
+        deploymentHelper: 'Set GEMINI_API_KEY in Vercel Settings → Environment Variables',
       },
       { status: 500 }
     );
@@ -21,6 +48,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const message = typeof body.message === 'string' ? body.message.trim() : '';
 
+    // Validate input
     if (!message) {
       return NextResponse.json(
         {
@@ -31,6 +59,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Initialize Gemini model with safety settings
     const model = genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
       generationConfig: {
@@ -71,12 +100,14 @@ User question: ${message}`;
       message: responseText,
     });
   } catch (error: any) {
-    console.error('Gemini API error:', error);
+    console.error('[GEMINI_API_ERROR]', error?.message || error);
 
+    // Return detailed error for debugging
     return NextResponse.json(
       {
         success: false,
         error: error?.message || 'Failed to generate response.',
+        troubleshoot: 'Check GitHub logs: https://github.com/thurlocasling253-hue/spaza-budget',
       },
       { status: 500 }
     );
