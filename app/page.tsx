@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, CheckCircle2, MessageSquare, RefreshCw, ShieldAlert, Sparkles, TrendingUp, Users, Wallet, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, MessageSquare, RefreshCw, ShieldAlert, Sparkles, TrendingUp, Users, Wallet, X, Loader } from 'lucide-react';
 
 interface BudgetState {
   income: number;
@@ -25,10 +25,11 @@ export default function Page() {
   const [budget, setBudget] = useState<BudgetState>(DEFAULT_BUDGET);
   const [isLoaded, setIsLoaded] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string; isLoading?: boolean }>>([
     { role: 'ai', text: 'Sho! I am your Spaza AI advisor. How can I help you adjust your survival budget today?' },
   ]);
   const [inputMsg, setInputMsg] = useState('');
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('spaza_budget_state');
@@ -59,23 +60,64 @@ export default function Page() {
     setBudget((prev) => ({ ...prev, completedOnboarding: true }));
   };
 
-  const handleSendMessage = (e: React.FormEvent) => {
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputMsg.trim()) return;
+    if (!inputMsg.trim() || isWaitingForResponse) return;
 
     const userText = inputMsg;
     setInputMsg('');
     setChatMessages((prev) => [...prev, { role: 'user', text: userText }]);
+    setIsWaitingForResponse(true);
 
-    setTimeout(() => {
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userText,
+          budgetContext: {
+            income: budget.income,
+            period: budget.period,
+            householdSize: budget.householdSize,
+            remainingCash: remainingCash,
+            discretionaryCap: discretionaryCap.toFixed(0),
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.message) {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'ai',
+            text: data.message,
+          },
+        ]);
+      } else {
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            role: 'ai',
+            text: `Sorry, I couldn't generate a response. Error: ${data.error || 'Unknown error'}`,
+          },
+        ]);
+      }
+    } catch (error: any) {
+      console.error('Chat error:', error);
       setChatMessages((prev) => [
         ...prev,
         {
           role: 'ai',
-          text: `Based on your balance of R${budget.income}, this leaves about R${remainingCash.toFixed(0)} after your core survival costs. Try to cap non-essential spend under R${discretionaryCap.toFixed(0)}.`,
+          text: `Connection error: ${error.message || 'Failed to reach AI service. Please check your internet and try again.'}`,
         },
       ]);
-    }, 400);
+    } finally {
+      setIsWaitingForResponse(false);
+    }
   };
 
   if (!isLoaded) return null;
@@ -88,7 +130,7 @@ export default function Page() {
             <span className="inline-block rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
               Welcome to SpazaBudget
             </span>
-            <h1 className="text-2xl font-bold text-white">Let’s Set Up Your Baseline</h1>
+            <h1 className="text-2xl font-bold text-white">Let's Set Up Your Baseline</h1>
             <p className="text-xs text-slate-400">Enter honest household numbers to generate your customized plan.</p>
           </div>
 
@@ -272,7 +314,14 @@ export default function Page() {
                     msg.role === 'user' ? 'ml-auto bg-emerald-600 text-white' : 'bg-slate-950 text-slate-200 border border-slate-800'
                   }`}
                 >
-                  {msg.text}
+                  {msg.isLoading ? (
+                    <div className="flex items-center gap-2">
+                      <Loader className="w-3 h-3 animate-spin" />
+                      Thinking...
+                    </div>
+                  ) : (
+                    msg.text
+                  )}
                 </div>
               ))}
             </div>
@@ -282,10 +331,15 @@ export default function Page() {
                 type="text"
                 value={inputMsg}
                 onChange={(e) => setInputMsg(e.target.value)}
+                disabled={isWaitingForResponse}
                 placeholder="Ask advice on groceries, transport..."
-                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500 disabled:opacity-50"
               />
-              <button type="submit" className="bg-emerald-600 text-white p-2 rounded-xl hover:bg-emerald-500 transition-colors">
+              <button 
+                type="submit" 
+                disabled={isWaitingForResponse}
+                className="bg-emerald-600 text-white p-2 rounded-xl hover:bg-emerald-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
                 <MessageSquare className="w-4 h-4" />
               </button>
             </form>
